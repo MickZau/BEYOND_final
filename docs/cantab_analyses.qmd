@@ -1,0 +1,110 @@
+---
+title: "CANTAB analyser"
+format: html
+---
+
+```{r, warning=FALSE, message=FALSE}
+library(here)
+library(tidyverse)
+library(LMMstar)
+library(readr)
+library(rstatix)
+```
+
+```{r, warning=FALSE, message=FALSE}
+cantab_data <- read_delim(here("data/cantab_test.csv"), delim = ";") |> 
+  rename(
+    treat = Gruppe,
+    id = Participant,
+    test = Test,
+    measure = "Measure Code",
+    visit = "Visit ID",
+    result = Result
+  ) |> 
+  filter(
+    Status == "COMPLETED",
+    measure %in% c('RVPA', "RVPPFA", "RVPMDL", "DMSPCAD", "DMSPCS", "DMSPC0", "DMSPC4", "DMSPC12", "SWMBE468", "SWMS", "SWMBE4", "SWMBE6", "SSTSSRT")
+  ) |> 
+  mutate(
+    measure=factor(measure),
+    id=factor(id),
+    visit=factor(visit),
+    treat=factor(treat)
+  )
+summary(cantab_data$measure)
+
+cantab_data_expanded <- read_delim(here("data/cantab_test.csv"), delim = ";") |> 
+  rename(
+    treat = Gruppe,
+    id = Participant,
+    test = Test,
+    measure = "Measure Code",
+    visit = "Visit ID",
+    result = Result
+  ) |> 
+  filter(
+    Status == "COMPLETED"
+  ) |> 
+  mutate(
+    measure=factor(measure)
+  )
+summary(cantab_data_expanded$measure)
+```
+
+```{r}
+# Baseline opdeling
+cantab_data_base <- cantab_data |> 
+  filter(
+    visit == "Screen"
+  )
+```
+
+
+```{r}
+# Baseline error check:
+cantab_base_error <- cantab_data_base |> 
+  filter(
+    is.na(result)
+  )
+```
+
+
+```{r}
+
+test_cantab <- LMMstar::summarize(result~measure+treat, data = cantab_data_base, na.rm = TRUE)
+cantab_aid <- test_cantab |> 
+  as.data.frame() |> 
+  filter(
+    treat == "AID"
+  ) |> 
+  select(
+    measure,
+    observed,
+    mean,
+    sd) |> 
+  rename(
+    n_aid = observed,
+    mean_aid = mean,
+    sd_aid = sd
+  )
+
+cantab_control <- test_cantab |> 
+  as.data.frame() |> 
+  filter(
+    treat == "Control"
+  ) |> 
+  select(
+    measure,
+    observed,
+    mean,
+    sd) |> 
+  rename(
+    n_control = observed,
+    mean_control = mean,
+    sd_control = sd
+  )  
+
+cantab_full_base <- cantab_aid |> 
+  right_join(cantab_control)
+```
+

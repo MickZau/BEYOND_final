@@ -7,10 +7,16 @@ HST:
 Homesleeptest set up using provided galaxy tab A8 with pre-installed software Somnomedics (ref?), tablet software locked.
 Device set up at clinical visits. 
 Sleep analysed for three nights. The following requests were made: One night with 24 hr blood pressure, one night with holter (?) and one measurement on a weekday.
+Minimum one night.
 Analyses screened for quality using SOMNOMEDICS generated reports.
+Reports generated using web based automated analysis tool from somnomedics.
 More than 1 hr of artefacts: Exclusion.
+Restrictive approach.
 If in doubt a) Analyse with uSleep b) consult expert.
 Raw data downloaded from somnomedics homepage. 
 Analysed using DOMINO software version 3.0.0.8 (ref), exported as edf files.
 Edf files transferred to third party for analysis with uSleep (ref).
+
+**Issues:** Sometimes artifacts registered as "awake". Difficulty destinguising wake from N1 sleep.
+
 
