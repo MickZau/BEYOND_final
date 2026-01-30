@@ -9,17 +9,49 @@ library(tidyverse)
 library(LMMstar)
 library(readr)
 library(rstatix)
+library(kableExtra)
 ```
 
+```{r}
+cantab_qual_check <- read.csv2(here("data/cantab_test_3.csv")) |> 
+  filter(
+    Participant == "V085",
+    #Observation != "COMPLETE_AND_RELIABLE",
+    Status == "COMPLETED",
+    Visit.ID == "Screen"
+  ) |>
+  select(
+    Participant,
+    Lokation,
+    Test,
+    Status,
+    Observation
+  ) 
+```
+
+
 ```{r, warning=FALSE, message=FALSE}
-cantab_data <- read_delim(here("data/cantab_test.csv"), delim = ";") |> 
+random <- read_delim(here("data/randomizations.csv"), delim = ";")
+usual <- read_delim(here("data/usual_treatment.csv"), delim = ";")
+hst <- read.csv(here("data/hst_values.csv")) |> 
+  select(
+    id,
+    hst_efficiency,
+    hst_latency,
+    hst_tst,
+    rem_percent,
+    n3_percent
+  )
+cantab_data <- read.csv2(here("data/cantab_test_3.csv"))|> 
   rename(
-    treat = Gruppe,
     id = Participant,
+    observation = Observation,
     test = Test,
-    measure = "Measure Code",
-    visit = "Visit ID",
-    result = Result
+    measure = "Measure.Code",
+    visit = "Visit.ID",
+    result = Result,
+    standard = "Standard.Score",
+    percentile = Percentile
   ) |> 
   filter(
     Status == "COMPLETED",
@@ -27,36 +59,107 @@ cantab_data <- read_delim(here("data/cantab_test.csv"), delim = ";") |>
   ) |> 
   mutate(
     measure=factor(measure),
-    id=factor(id),
+    id=parse_number(id),
     visit=factor(visit),
-    treat=factor(treat)
-  )
-summary(cantab_data$measure)
+    result=as.numeric(result),
+    standard=as.numeric(standard)
+  ) |> 
+  right_join(usual) |> 
+  right_join(random) |> 
+  right_join(hst)
+cantab_data$id <- factor(cantab_data$id)
+summary(cantab_data$id)
 
-cantab_data_expanded <- read_delim(here("data/cantab_test.csv"), delim = ";") |> 
+cantab_data_expanded <- read.csv2(here("data/cantab_test_3.csv"))|> 
   rename(
-    treat = Gruppe,
     id = Participant,
     test = Test,
-    measure = "Measure Code",
-    visit = "Visit ID",
-    result = Result
+    measure = "Measure.Code",
+    visit = "Visit.ID",
+    result = Result,
+    standard = "Standard.Score",
+    percentile = Percentile
   ) |> 
   filter(
     Status == "COMPLETED"
   ) |> 
   mutate(
-    measure=factor(measure)
+    measure=factor(measure),
+    id=parse_number(id),
+    visit=factor(visit),
+    result=as.numeric(result),
+    standard=as.numeric(standard)
   )
 summary(cantab_data_expanded$measure)
 ```
+
+Svar for enkelt person:
+```{r}
+cantab_data_single <- cantab_data_expanded |> 
+  filter(
+    id == 85
+  ) |>
+  select(
+    id,
+    visit,
+    measure,
+    result
+  ) |> 
+  pivot_wider(
+    names_from = c(measure),
+    values_from = result
+  )
+delta_values <- cantab_data_single[2, -c(1, 2)] - cantab_data_single[1, -c(1, 2)]
+new_row <- cbind(cantab_data_single[1, 1:2], delta_values)
+new_row$visit <- "Delta"
+cantab_data_single <- rbind(cantab_data_single, new_row) |> 
+  select(id, visit, RVPML, RVPLSD, RVPTH, RVPTM, RVPTFA, DMSTC, DMSPC0, DMSPC4, DMSPC12, DMSCC, DMSMLAD, DMSLADSD, SWMTE468, SWMBE468, SWMWE468, SWMSX, SSTSSRT, SSTMRTG, SSTDES, SSTDEG) |> 
+  rename(
+    "RVP Response latency (ms)" = RVPML,
+    "RVP Response SD" = RVPLSD,
+    "RVP Total Hits" = RVPTH,
+    "RVP Total Misses" = RVPTM,
+    "RVP Total False Alarms" = RVPTFA,
+    "DMS number of correct choices (all)" = DMSTC,
+    "DMS % correct choices (0 sec)" = DMSPC0,
+    "DMS % correct choices (4 sec)" = DMSPC4,
+    "DMS % correct choices (12 sec)" = DMSPC12,
+    "DMS mean number of choices" = DMSCC,
+    "DMS correct choice latency (all)" = DMSMLAD,
+    "DMS correct choice latency SD (all)" = DMSLADSD,
+    "SWM Total Errors (all)" = SWMTE468,
+    "SWM Between Errors (all)" = SWMBE468,
+    "SWM Within Errors (all)" = SWMWE468,
+    "SWM strategy (6-12 boxes)" = SWMSX,
+    "SST Stop Reaction Time (ms)" = SSTSSRT,
+    "SST Median Go Reaction Time (ms)" = SSTMRTG,
+    "SST Stop Errors" = SSTDES,
+    "SST Go Errors" = SSTDEG
+  )
+cantab_data_single <- t(cantab_data_single)
+cantab_data_single <- as.data.frame(cantab_data_single) |>
+  rownames_to_column(var = "Measure") 
+kable(cantab_data_single)
+```
+
+
+```{r}
+# Tjek for manglende registrering af "comple and reliable":
+cantab_data_statuserror <- cantab_data |> 
+  filter(
+    is.na(observation)
+  )
+```
+
 
 ```{r}
 # Baseline opdeling
 cantab_data_base <- cantab_data |> 
   filter(
-    visit == "Screen"
+    visit == "Screen",
+    observation == "COMPLETE_AND_RELIABLE"
   )
+summary(cantab_data_base$id)
 ```
 
 
@@ -71,11 +174,11 @@ cantab_base_error <- cantab_data_base |>
 
 ```{r}
 
-test_cantab <- LMMstar::summarize(result~measure+treat, data = cantab_data_base, na.rm = TRUE)
+test_cantab <- LMMstar::summarize(result~measure+usual, data = cantab_data_base, na.rm = TRUE)
 cantab_aid <- test_cantab |> 
   as.data.frame() |> 
   filter(
-    treat == "AID"
+    usual == "Pump"
   ) |> 
   select(
     measure,
@@ -83,15 +186,15 @@ cantab_aid <- test_cantab |>
     mean,
     sd) |> 
   rename(
-    n_aid = observed,
-    mean_aid = mean,
-    sd_aid = sd
+    n_pump = observed,
+    mean_pump = mean,
+    sd_pump = sd
   )
 
 cantab_control <- test_cantab |> 
   as.data.frame() |> 
   filter(
-    treat == "Control"
+    usual == "MDI"
   ) |> 
   select(
     measure,
@@ -99,12 +202,278 @@ cantab_control <- test_cantab |>
     mean,
     sd) |> 
   rename(
-    n_control = observed,
-    mean_control = mean,
-    sd_control = sd
+    n_mdi = observed,
+    mean_mdi = mean,
+    sd_mdi = sd
   )  
 
 cantab_full_base <- cantab_aid |> 
   right_join(cantab_control)
 ```
 
+```{r}
+cantab_result <- LMMstar::summarize(result~measure, data = cantab_data_base, na.rm = TRUE) |>
+  as.data.frame() |> 
+  rename(
+    result_mean = mean,
+    result_sd = sd
+  ) |> 
+  select(
+    measure,
+    result_mean,
+    result_sd
+  )
+cantab_standard <- LMMstar::summarize(standard~measure, data = cantab_data_base, na.rm = TRUE) |>
+  as.data.frame() |>  
+  rename(
+    standard_mean = mean,
+    standard_sd = sd
+  ) |> 
+  select(
+    measure,
+    standard_mean,
+    standard_sd
+  )
+cantab_percentile <- LMMstar::summarize(percentile~measure, data = cantab_data_base, na.rm = TRUE) |>
+  as.data.frame() |>  
+  rename(
+    percentile_mean = mean,
+    percentile_sd = sd
+  ) |> 
+  select(
+    measure,
+    percentile_mean,
+    percentile_sd
+  )
+cantab_base_comparison <- cantab_result |> 
+  right_join(cantab_standard) |> 
+  right_join(cantab_percentile)
+```
+
+```{r}
+# Test af søvn korrelater (RVP result)
+cantab_sleep <- cantab_data |> 
+  filter(
+    visit == "Screen",
+    measure == "RVPA",
+    observation == "COMPLETE_AND_RELIABLE"
+  )
+
+cantab_sleep_analysis <- lm(result~hst_efficiency+hst_tst+rem_percent+n3_percent, data = cantab_sleep)
+summary(cantab_sleep_analysis)
+cbind(coef(cantab_sleep_analysis), confint(cantab_sleep_analysis))
+
+pred_base <- data.frame(
+  hst_efficiency = seq(58, 100, by = 1),
+  hst_tst = mean(cantab_sleep$hst_tst, na.rm = TRUE),
+  rem_percent = mean(cantab_sleep$rem_percent, na.rm = TRUE),
+  n3_percent = mean(cantab_sleep$n3_percent, na.rm = TRUE)
+  )
+
+pred1 <- cbind(pred_base, predict(cantab_sleep_analysis, newdata = pred_base, interval = "prediction"))
+
+pred2 <- cbind(pred_base, predict(cantab_sleep_analysis, newdata = pred_base, interval = "confidence"))
+
+plot(cantab_sleep$hst_efficiency, cantab_sleep$result, las=1, xlab="HST efficiency", ylab="RVP test result", ylim=c(0.75,1))
+lines(pred1$hst_efficiency, pred1$fit, lwd=2, col="black")
+lines(pred1$hst_efficiency, pred1$lwr, lty=2, lwd=2, col="blue")
+lines(pred1$hst_efficiency, pred1$upr, lty=2, lwd=2, col="blue")
+lines(pred2$hst_efficiency, pred2$lwr, lty=3, lwd=2, col="red")
+lines(pred2$hst_efficiency, pred2$upr, lty=3, lwd=2, col="red")
+title(main="Efficiency / RVP test result correlate")
+legend("bottomright", 
+       legend=c("Mean", "95% Prediction", "95% Confidence"), 
+       lty=c(1, 2, 3), 
+       col=c("black", "blue", "red"), 
+       lwd=2, bty="n")
+```
+
+```{r}
+# Test af søvn korrelater (RVP z-værdier)
+cantab_sleep <- cantab_data |> 
+  filter(
+    visit == "Screen",
+    measure == "RVPA",
+    observation == "COMPLETE_AND_RELIABLE"
+  )
+
+cantab_sleep_analysis <- lm(standard~hst_efficiency+hst_tst+rem_percent+n3_percent, data = cantab_sleep)
+summary(cantab_sleep_analysis)
+cbind(coef(cantab_sleep_analysis), confint(cantab_sleep_analysis))
+
+pred_base <- data.frame(
+  hst_efficiency = seq(58, 100, by = 1),
+  hst_tst = mean(cantab_sleep$hst_tst, na.rm = TRUE),
+  rem_percent = mean(cantab_sleep$rem_percent, na.rm = TRUE),
+  n3_percent = mean(cantab_sleep$n3_percent, na.rm = TRUE)
+  )
+
+pred1 <- cbind(pred_base, predict(cantab_sleep_analysis, newdata = pred_base, interval = "prediction"))
+
+pred2 <- cbind(pred_base, predict(cantab_sleep_analysis, newdata = pred_base, interval = "confidence"))
+
+plot(cantab_sleep$hst_efficiency, cantab_sleep$standard, las=1, xlab="HST efficiency", ylab="RVP test z-value", ylim=c(-2,3))
+lines(pred1$hst_efficiency, pred1$fit, lwd=2, col="black")
+lines(pred1$hst_efficiency, pred1$lwr, lty=2, lwd=2, col="blue")
+lines(pred1$hst_efficiency, pred1$upr, lty=2, lwd=2, col="blue")
+lines(pred2$hst_efficiency, pred2$lwr, lty=3, lwd=2, col="red")
+lines(pred2$hst_efficiency, pred2$upr, lty=3, lwd=2, col="red")
+title(main="Efficiency / RVP test result correlate")
+legend("bottomright", 
+       legend=c("Mean", "95% Prediction", "95% Confidence"), 
+       lty=c(1, 2, 3), 
+       col=c("black", "blue", "red"), 
+       lwd=2, bty="n")
+```
+
+```{r}
+# Test af søvn korrelater (RVP percentil)
+cantab_sleep <- cantab_data |> 
+  filter(
+    visit == "Screen",
+    measure == "RVPA",
+    observation == "COMPLETE_AND_RELIABLE"
+  )
+
+cantab_sleep_analysis <- lm(percentile~hst_efficiency+hst_tst+rem_percent+n3_percent, data = cantab_sleep)
+summary(cantab_sleep_analysis)
+cbind(coef(cantab_sleep_analysis), confint(cantab_sleep_analysis))
+
+pred_base <- data.frame(
+  hst_efficiency = seq(58, 100, by = 1),
+  hst_tst = mean(cantab_sleep$hst_tst, na.rm = TRUE),
+  rem_percent = mean(cantab_sleep$rem_percent, na.rm = TRUE),
+  n3_percent = mean(cantab_sleep$n3_percent, na.rm = TRUE)
+  )
+
+pred1 <- cbind(pred_base, predict(cantab_sleep_analysis, newdata = pred_base, interval = "prediction"))
+
+pred2 <- cbind(pred_base, predict(cantab_sleep_analysis, newdata = pred_base, interval = "confidence"))
+
+plot(cantab_sleep$hst_efficiency, cantab_sleep$percentile, las=1, xlab="HST efficiency", ylab="RVP test percentile", ylim=c(-40,100))
+lines(pred1$hst_efficiency, pred1$fit, lwd=2, col="black")
+lines(pred1$hst_efficiency, pred1$lwr, lty=2, lwd=2, col="blue")
+lines(pred1$hst_efficiency, pred1$upr, lty=2, lwd=2, col="blue")
+lines(pred2$hst_efficiency, pred2$lwr, lty=3, lwd=2, col="red")
+lines(pred2$hst_efficiency, pred2$upr, lty=3, lwd=2, col="red")
+title(main="Efficiency / RVP test result correlate")
+legend("bottomright", 
+       legend=c("Mean", "95% Prediction", "95% Confidence"), 
+       lty=c(1, 2, 3), 
+       col=c("black", "blue", "red"), 
+       lwd=2, bty="n")
+```
+
+```{r SST resultater}
+# Test af søvn korrelater (SST result)
+cantab_sleep <- cantab_data |> 
+  filter(
+    visit == "Screen",
+    measure == "SSTSSRT",
+    observation == "COMPLETE_AND_RELIABLE"
+  )
+
+cantab_sleep_analysis <- lm(result~hst_efficiency+hst_tst+rem_percent+n3_percent, data = cantab_sleep)
+summary(cantab_sleep_analysis)
+cbind(coef(cantab_sleep_analysis), confint(cantab_sleep_analysis))
+
+pred_base <- data.frame(
+  hst_efficiency = seq(58, 100, by = 1),
+  hst_tst = mean(cantab_sleep$hst_tst, na.rm = TRUE),
+  rem_percent = mean(cantab_sleep$rem_percent, na.rm = TRUE),
+  n3_percent = mean(cantab_sleep$n3_percent, na.rm = TRUE)
+  )
+
+pred1 <- cbind(pred_base, predict(cantab_sleep_analysis, newdata = pred_base, interval = "prediction"))
+
+pred2 <- cbind(pred_base, predict(cantab_sleep_analysis, newdata = pred_base, interval = "confidence"))
+
+plot(cantab_sleep$hst_efficiency, cantab_sleep$result, las=1, xlab="HST efficiency", ylab="RVP test result", ylim=c(0,1))
+lines(pred1$hst_efficiency, pred1$fit, lwd=2, col="black")
+lines(pred1$hst_efficiency, pred1$lwr, lty=2, lwd=2, col="blue")
+lines(pred1$hst_efficiency, pred1$upr, lty=2, lwd=2, col="blue")
+lines(pred2$hst_efficiency, pred2$lwr, lty=3, lwd=2, col="red")
+lines(pred2$hst_efficiency, pred2$upr, lty=3, lwd=2, col="red")
+title(main="Efficiency / RVP test result correlate")
+legend("bottomright", 
+       legend=c("Mean", "95% Prediction", "95% Confidence"), 
+       lty=c(1, 2, 3), 
+       col=c("black", "blue", "red"), 
+       lwd=2, bty="n")
+```
+
+```{r}
+# Test af søvn korrelater (SST z-værdier)
+cantab_sleep <- cantab_data |> 
+  filter(
+    visit == "Screen",
+    measure == "SSTSSRT",
+    observation == "COMPLETE_AND_RELIABLE"
+  )
+
+cantab_sleep_analysis <- lm(standard~hst_efficiency+hst_tst+rem_percent+n3_percent, data = cantab_sleep)
+summary(cantab_sleep_analysis)
+cbind(coef(cantab_sleep_analysis), confint(cantab_sleep_analysis))
+
+pred_base <- data.frame(
+  hst_efficiency = seq(58, 100, by = 1),
+  hst_tst = mean(cantab_sleep$hst_tst, na.rm = TRUE),
+  rem_percent = mean(cantab_sleep$rem_percent, na.rm = TRUE),
+  n3_percent = mean(cantab_sleep$n3_percent, na.rm = TRUE)
+  )
+
+pred1 <- cbind(pred_base, predict(cantab_sleep_analysis, newdata = pred_base, interval = "prediction"))
+
+pred2 <- cbind(pred_base, predict(cantab_sleep_analysis, newdata = pred_base, interval = "confidence"))
+
+plot(cantab_sleep$hst_efficiency, cantab_sleep$standard, las=1, xlab="HST efficiency", ylab="RVP test z-value", ylim=c(-2,3))
+lines(pred1$hst_efficiency, pred1$fit, lwd=2, col="black")
+lines(pred1$hst_efficiency, pred1$lwr, lty=2, lwd=2, col="blue")
+lines(pred1$hst_efficiency, pred1$upr, lty=2, lwd=2, col="blue")
+lines(pred2$hst_efficiency, pred2$lwr, lty=3, lwd=2, col="red")
+lines(pred2$hst_efficiency, pred2$upr, lty=3, lwd=2, col="red")
+title(main="Efficiency / RVP test result correlate")
+legend("bottomright", 
+       legend=c("Mean", "95% Prediction", "95% Confidence"), 
+       lty=c(1, 2, 3), 
+       col=c("black", "blue", "red"), 
+       lwd=2, bty="n")
+```
+
+```{r}
+# Test af søvn korrelater (SST percentil)
+cantab_sleep <- cantab_data |> 
+  filter(
+    visit == "Screen",
+    measure == "SSTSSRT",
+    observation == "COMPLETE_AND_RELIABLE"
+  )
+
+cantab_sleep_analysis <- lm(percentile~hst_efficiency+hst_tst+rem_percent+n3_percent, data = cantab_sleep)
+summary(cantab_sleep_analysis)
+cbind(coef(cantab_sleep_analysis), confint(cantab_sleep_analysis))
+
+pred_base <- data.frame(
+  hst_efficiency = seq(58, 100, by = 1),
+  hst_tst = mean(cantab_sleep$hst_tst, na.rm = TRUE),
+  rem_percent = mean(cantab_sleep$rem_percent, na.rm = TRUE),
+  n3_percent = mean(cantab_sleep$n3_percent, na.rm = TRUE)
+  )
+
+pred1 <- cbind(pred_base, predict(cantab_sleep_analysis, newdata = pred_base, interval = "prediction"))
+
+pred2 <- cbind(pred_base, predict(cantab_sleep_analysis, newdata = pred_base, interval = "confidence"))
+
+plot(cantab_sleep$hst_efficiency, cantab_sleep$percentile, las=1, xlab="HST efficiency", ylab="RVP test percentile", ylim=c(-40,100))
+lines(pred1$hst_efficiency, pred1$fit, lwd=2, col="black")
+lines(pred1$hst_efficiency, pred1$lwr, lty=2, lwd=2, col="blue")
+lines(pred1$hst_efficiency, pred1$upr, lty=2, lwd=2, col="blue")
+lines(pred2$hst_efficiency, pred2$lwr, lty=3, lwd=2, col="red")
+lines(pred2$hst_efficiency, pred2$upr, lty=3, lwd=2, col="red")
+title(main="Efficiency / RVP test result correlate")
+legend("bottomright", 
+       legend=c("Mean", "95% Prediction", "95% Confidence"), 
+       lty=c(1, 2, 3), 
+       col=c("black", "blue", "red"), 
+       lwd=2, bty="n")
+```

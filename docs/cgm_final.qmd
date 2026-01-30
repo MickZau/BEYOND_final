@@ -1,0 +1,61 @@
+---
+title: "CGM final"
+format: html
+---
+
+```{r, warning=FALSE, message=FALSE}
+library(here)
+library(tidyverse)
+library(LMMstar)
+library(readr)
+library(rstatix)
+library(kableExtra)
+library(fs)
+source(here("R/functions.R"))
+```
+
+```{r, warning=FALSE, message=FALSE, echo=FALSE}
+cgm_list_files <- here("data-raw/g7_base") |>
+    dir_ls(glob = "*.csv")
+
+g7 <- cgm_list_files |>
+  map(import_single_cgm) |>
+    list_rbind(names_to = "participant_id") |> 
+  filter(
+    !is.na(date)
+  )
+```
+
+```{r}
+test <- read_csv2(
+    file = "C:/Dokumenter/BEYOND_final/data-raw/g7_base/47_prepare_2_weeks_arm_1_upload_cgm_data.csv",
+    col_names = FALSE,
+    trim_ws = TRUE,
+    skip = 13
+  ) 
+
+
+>
+    rename(
+      datetime = X2,
+      glucose = X8
+    )  |>
+    mutate(
+      date = as_date(datetime),
+      hour = hour(datetime),
+      min = minute(datetime),
+      .before = datetime
+    ) |>
+    select(
+      date,
+      hour,
+      min,
+      glucose
+    ) |>
+    mutate(
+      glucose = str_replace_all(glucose, "High", "22.2"),
+      glucose = str_replace_all(glucose, "Low", "2.2"),
+      glucose = as.numeric(glucose)
+    )
+```
+
