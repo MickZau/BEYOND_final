@@ -14,31 +14,21 @@ library(fs)
 source(here("R/functions.R"))
 ```
 
-```{r, warning=FALSE, message=FALSE, echo=FALSE}
-cgm_list_files <- here("data-raw/g7_base") |>
-    dir_ls(glob = "*.csv")
-
-g7 <- cgm_list_files |>
-  map(import_single_cgm) |>
-    list_rbind(names_to = "participant_id") |> 
-  filter(
-    !is.na(date)
-  )
-```
-
 ```{r}
-test <- read_csv2(
-    file = "C:/Dokumenter/BEYOND_final/data-raw/g7_base/47_prepare_2_weeks_arm_1_upload_cgm_data.csv",
-    col_names = FALSE,
-    trim_ws = TRUE,
-    skip = 13
-  ) 
-
-
->
+# Test, slet senere
+g7_test <- read_csv(here("data-raw/g7_base/35_prepare_2_weeks_arm_1_upload_cgm_data.csv")) |>
     rename(
-      datetime = X2,
-      glucose = X8
+      datetime = "Timestamp (YYYY-MM-DDThh:mm:ss)",
+      type = "Event Type",
+      glucose = "Glucose Value (mmol/L)"
+    ) |>
+    filter(
+      type == "EGV"
+    ) |>
+    mutate(
+      glucose = str_replace_all(glucose, "High", "22.2"),
+      glucose = str_replace_all(glucose, "Low", "2.2"),
+      glucose = as.numeric(glucose)
     )  |>
     mutate(
       date = as_date(datetime),
@@ -48,14 +38,146 @@ test <- read_csv2(
     ) |>
     select(
       date,
+      type,
       hour,
       min,
       glucose
-    ) |>
+    )
+```
+
+
+```{r, warning=FALSE, message=FALSE, echo=FALSE}
+cgm_list_files <- here("data-raw/g7_base") |>
+    dir_ls(glob = "*.csv")
+
+g7 <- cgm_list_files |>
+  map(import_single_cgm) |>
+    list_rbind(names_to = "id")
+g7$id <- basename(g7$id)
+g7$id <- str_extract(g7$id, "^\\d+")
+g7$id <- as.factor(g7$id)
+```
+
+```{r}
+# Deltager 1
+g7_1 <- read.csv2(here("data-raw/g7_base/modified/1_prepare_2_weeks_arm_1_upload_cgm_data.csv"),
+                  skip = 1) 
+g7_1$datetime <-   paste(g7_1$date, g7_1$time, sep = " ")
+g7_1 <- g7_1 |> 
+  mutate(
+    hour = hour(datetime),
+    min = minute(datetime),
+    date = as.Date(date),
+    glucose = as.numeric(glucose),
+    glucose = if_else(glucose < 2.2, 2.2, glucose)
+  )
+g7_1$id <- "1"
+g7_1 <- g7_1 |> 
+  select(
+    id,
+    date,
+    type,
+    hour,
+    min,
+    glucose
+  )
+
+# Deltager 7
+g7_7 <- read_csv2(
+    file = here("data-raw/g7_base/modified/7_prepare_2_weeks_arm_1_upload_cgm_data.csv")) |> 
+  rename(
+    datetime = "Timestamp (YYYY-MM-DDThh:mm:ss)",
+    glucose = "Glucose Value (mmol/L)",
+    type = "Event Type"
+  ) |> 
+  filter(
+    type == "EGV"
+  ) |>
     mutate(
+      #glucose = (glucose/10),
       glucose = str_replace_all(glucose, "High", "22.2"),
       glucose = str_replace_all(glucose, "Low", "2.2"),
-      glucose = as.numeric(glucose)
+      glucose = as.numeric(glucose),
+      glucose = if_else(glucose < 2.2, 2.2, glucose)
+    )  |>
+    mutate(
+      date = as_date(datetime),
+      hour = hour(datetime),
+      min = minute(datetime),
+      .before = datetime,
+      id = "7"
+    ) |>
+    select(
+      id,
+      date,
+      type,
+      hour,
+      min,
+      glucose
     )
+
+# Deltager 31
+g7_31 <- read.csv2(here("data-raw/g7_base/modified/31_prepare_2_weeks_arm_1_upload_cgm_data.csv"),
+                  skip = 1)
+g7_31$datetime <-   paste(g7_31$date, g7_31$time, sep = " ")
+g7_31 <- g7_31 |> 
+  mutate(
+    hour = hour(datetime),
+    min = minute(datetime),
+    date = as.Date(date),
+    glucose = as.numeric(glucose),
+    glucose = if_else(glucose < 2.2, 2.2, glucose)
+  )
+g7_31$id <- "31"
+g7_31 <- g7_31 |> 
+  select(
+    id,
+    date,
+    type,
+    hour,
+    min,
+    glucose
+  )
+```
+
+```{r}
+pre_merge <- g7_1 |> 
+  full_join(g7_7) |> 
+  full_join(g7_31) |> 
+  mutate(
+    id = as.factor(id)
+  )
+
+g7 <- pre_merge |> 
+  full_join(g7)
+```
+
+```{r}
+summary(g7$id)
+
+# Overview days
+g7_overview <- as.data.frame(table(g7$id)) |> 
+  mutate(
+  id = as.character(Var1),
+  id = as.numeric(id)
+  ) |> 
+  select(
+    id,
+    Freq
+  )
+
+g7_lessthan7 <- g7_overview |> 
+  filter(
+    Freq <= "2016"
+  )
+
+g7_check <- g7 |> 
+  filter(
+    id == "26"
+  )
+```
+
+```{r}
+
 ```
 
