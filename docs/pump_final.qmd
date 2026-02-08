@@ -1,0 +1,140 @@
+---
+title: "Pump Data"
+format: html
+---
+
+```{r Packages, warning=FALSE, message=FALSE}
+library(here)
+library(tidyverse)
+library(LMMstar)
+library(readr)
+library(rstatix)
+library(kableExtra)
+library(fs)
+source(here("R/functions.R"))
+```
+
+```{r General import, warning=FALSE, message=FALSE}
+stenopool_basal_base <- read.csv(here("data-raw/pump_base/73_prepare_2_weeks_arm_1_cgmupload_pump_3.csv")) |> 
+  select(
+    start,
+    end,
+    units,
+    deliveryMode
+  ) |> 
+  rename(
+    type = deliveryMode
+  ) |> 
+  mutate(
+    id = "73",
+    start = as.POSIXct(start, format = "%Y-%m-%dT%H:%M"),
+    end = as.POSIXct(end, format = "%Y-%m-%dT%H:%M"),
+    duration_min = as.numeric(difftime(end, start, units = "mins")),
+    num_intervals = ceiling(duration_min / 5),
+    units_new = units/60*duration_min
+  ) |> 
+  filter(!is.na(num_intervals)) |> 
+  uncount(num_intervals, .id = "interval_id") %>%
+  mutate(
+    timestamp = start + minutes(5 * (interval_id - 1)),
+    units_5min = (units_new / duration_min) * 5
+  ) |> 
+  select(
+    id,
+    timestamp,
+    type, 
+    units_5min
+    ) |> 
+  rename(
+    time = timestamp,
+    units = units_5min
+  )
+
+stenopool_bolus_base <- read.csv(here("data-raw/pump_base/73_prepare_2_weeks_arm_1_cgmupload_pump_2.csv")) |> 
+  mutate(
+    id = "73",
+    type = "bolus",
+    time = as.POSIXct(time, format = "%Y-%m-%dT%H:%M")
+  )|> 
+  select(
+    time,
+    units
+  ) 
+
+stenopool_insulin <- stenopool_basal_base |> 
+  full_join(stenopool_bolus_base) |> 
+  mutate(
+    date = date(time),
+    hour = hour(time),
+    min = minute(time)
+  ) |> 
+  select(
+    id,
+    date,
+    hour,
+    min,
+    type,
+    units
+  )
+```
+
+```{r}
+stenopool_basal_base <- read.csv(here("data-raw/pump_base/73_prepare_2_weeks_arm_1_cgmupload_pump_3.csv")) |> 
+  select(
+    start,
+    end,
+    units,
+    deliveryMode
+  ) |> 
+  rename(
+    type = deliveryMode
+  ) |> 
+  mutate(
+    start = as.POSIXct(start, format = "%Y-%m-%dT%H:%M"),
+    end = as.POSIXct(end, format = "%Y-%m-%dT%H:%M"),
+    duration_min = as.numeric(difftime(end, start, units = "mins")),
+    num_intervals = ceiling(duration_min / 5),
+    units_new = units/60*duration_min
+  ) |> 
+  filter(!is.na(num_intervals)) |> 
+  uncount(num_intervals, .id = "interval_id") %>%
+  mutate(
+    timestamp = start + minutes(5 * (interval_id - 1)),
+    units_5min = (units_new / duration_min) * 5
+  ) %>%
+  select(timestamp, type, units_5min)
+
+head(df_5min)
+```
+
+```{r}
+stenopool_insulin_merge <- stenopool_insulin |> 
+  select(
+    -date,
+    -min
+  ) |> 
+  mutate(
+    hour = as.factor(hour)
+  )
+g7_73_merge <- g7_73 |> 
+  select(
+    -date,
+    -min
+  ) |> 
+  mutate(
+    hour = as.factor(hour)
+  )
+bt_73_merge <- bt_73 |> 
+  select(
+    -date,
+    -min
+  ) |> 
+  mutate(
+    hour = as.factor(hour)
+  )
+
+full <- g7_73_merge |> 
+  full_join(stenopool_insulin_merge) |> 
+  full_join(bt_73_merge)
+```
+

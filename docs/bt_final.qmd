@@ -1,0 +1,251 @@
+---
+title: "Blood pressure final"
+format: html
+---
+
+```{r Packages, warning=FALSE, message=FALSE}
+library(here)
+library(tidyverse)
+library(LMMstar)
+library(readr)
+library(rstatix)
+library(kableExtra)
+library(fs)
+source(here("R/functions.R"))
+```
+
+```{r General import import, message=FALSE, warning=FALSE}
+bt_usual <- read.csv2(here("data/usual_treatment.csv")) |> 
+  mutate(
+    usual = as.factor(usual)
+  )
+
+bt_sleeptime <- read.csv2(here("data/bt_sleeptime.csv")) |> 
+  mutate(
+    id = as.factor(id),
+    sleepstart = as.POSIXct(sleepstart, format = "%Y-%m-%d %H:%M"),
+    sleepend = as.POSIXct(sleepend, format = "%Y-%m-%d %H:%M"),
+    hour_start = hour(sleepstart)+1,
+    hour_end = hour(sleepend)
+  )
+
+bt_list_files <- bt_list_files <- here("data-raw/bt_base") |>
+    dir_ls(glob = "*.csv")
+
+bt_base <- bt_list_files |>
+  map(import_single_bt) |>
+    list_rbind(names_to = "id")
+bt_base$id <- basename(bt_base$id)
+bt_base$id <- str_extract(bt_base$id, "^\\d+")
+bt_base$id <- as.factor(bt_base$id)
+
+bt_base_date <- bt_list_files |>
+  map(import_bt_date) |>
+    list_rbind(names_to = "id")
+
+bt_base_date$id <- basename(bt_base_date$id)
+bt_base_date$id <- str_extract(bt_base_date$id, "^\\d+")
+bt_base_date$id <- as.factor(bt_base_date$id)
+
+bt_base <- bt_base_date |> 
+  full_join(bt_base) |> 
+  group_by(
+    id
+  ) |> 
+  mutate(
+    n = length(id)
+  )
+
+bt_73 <- bt_base |> 
+  filter(
+    id == "73"
+  ) |> 
+  select(
+    -n
+  )
+```
+
+```{r Modified import, warning=FALSE, message=FALSE}
+# Participant 64
+bt_64 <- read.csv2(here("data-raw/bt_base/modified/64_prepare_2_weeks_arm_1_hbpcsv.csv")) |> 
+  filter(
+    !is.na(hf)
+  ) |> 
+  mutate(
+    n = length(id),
+    id = factor(id),
+    date = date(date),
+    hour = as.numeric(hour),
+    min = as.numeric(min)
+  )
+```
+
+```{r Merge}
+bt_base <- bt_sleeptime |> 
+  full_join(bt_base) |> 
+  full_join(bt_64) |> 
+  select(
+    -sleepstart,
+    -sleepend
+  )
+```
+
+
+```{r Quality check}
+bt_check <- as.data.frame(LMMstar::summarize(n~id, data = bt_base)) |> 
+  select(
+    id,
+    observed
+  ) |> 
+  mutate(
+    id = as.numeric(as.character(id))
+  ) |> 
+  arrange(id) |> 
+  full_join(bt_usual)
+
+bt_missing <- bt_check |> 
+  filter(
+    is.na(observed)
+  )
+```
+
+```{r Single test}
+bt_test <- read_csv2(
+  file = here("data-raw/bt_base/33_prepare_2_weeks_arm_1_hbpcsv.csv"),
+  skip = 51,
+  col_names = FALSE
+  ) |>
+  rename(
+    hour = X1,
+    min = X2,
+    sys = X3,
+    map = X4,
+    dia = X5,
+    hf = X6,
+    error = X7
+  ) |>
+  filter(
+    is.na(error),
+    !is.na(hf)
+  ) |>
+  select(
+    -error
+  ) |>
+  mutate(
+    hour = as.factor(hour),
+    min = as.factor(min)
+  )
+```
+
+```{r Mean values with groups}
+mean_bt_base <- bt_base |> 
+  group_by(
+    id
+  ) |> 
+  summarise(
+    sys_mean = round(mean(sys), 0),
+    dia_mean = round(mean(dia), 0)
+  ) |> 
+  mutate(
+    id = as.numeric(as.character(id))
+  ) |> 
+  arrange(id)
+
+day_bt_base <- bt_base |> 
+  filter(
+    !if_else(hour_start <= hour_end,
+      hour >= hour_start & hour <= hour_end,
+      hour >= hour_start | hour <= hour_end
+    )
+  ) |> 
+  group_by(
+    id
+  ) |> 
+  summarise(
+    sys_day = round(mean(sys), 0),
+    dia_day = round(mean(dia), 0)
+  ) |> 
+  mutate(
+    id = as.numeric(as.character(id))
+  ) |> 
+  arrange(id) 
+  
+
+night_bt_base <- bt_base |> 
+  filter(
+    if_else(hour_start <= hour_end,
+      hour >= hour_start & hour <= hour_end,
+      hour >= hour_start | hour <= hour_end
+    )
+  ) |> 
+  group_by(
+    id
+  ) |> 
+  summarise(
+    sys_night = round(mean(sys), 0),
+    dia_night = round(mean(dia), 0)
+  ) |> 
+  mutate(
+    id = as.numeric(as.character(id))
+  ) |> 
+  arrange(id)
+
+mean_bt_base <- bt_usual |> 
+  full_join(mean_bt_base) |> 
+  full_join(day_bt_base) |> 
+  full_join(night_bt_base) |> 
+  mutate(
+    dipper = sys_night/sys_day*100,
+    dipper = if_else(dipper < 90, "yes", "no")
+  )
+```
+```{r}
+write.csv(mean_bt_base, here("data/bt_base.csv"))
+```
+
+
+```{r Mean values med HST SENERE}
+night_bt_base <- bt_base |> 
+  filter(
+    if_else(hour_start <= hour_end,
+      hour >= hour_start & hour <= hour_end,
+      hour >= hour_start | hour <= hour_end
+    )
+  )
+```
+
+```{r Risk engine calculations}
+riskengine <- read.csv2(here("data/riskengine_test.csv")) |> 
+  filter(
+    !id == "74",
+    !id == "33",
+    !id == "100"
+  )
+write.csv(riskengine, here("data/riskengine_new.csv"))
+
+riskengine_calc <- read.csv(here("data/riskengine_calculated.csv")) |> 
+  mutate(
+    cvd5_risk = case_when(
+    cvd5 < 0.10 ~ "Low",
+    cvd5 >= 0.10 & cvd5 < 0.20 ~ "Medium",
+    cvd5 >= 0.20 ~ "High"
+  ),
+  cvd10_risk = case_when(
+    cvd10 < 0.10 ~ "Low",
+    cvd10 >= 0.10 & cvd10 < 0.20 ~ "Medium",
+    cvd10 >= 0.20 ~ "High"
+  ),
+  eskd5_risk = case_when(
+    eskd5 < 0.10 ~ "Low",
+    eskd5 >= 0.10 & eskd5 < 0.20 ~ "Medium",
+    eskd5 >= 0.20 ~ "High"
+  )
+  )
+riskengine_calc <- bt_usual |> 
+  right_join(riskengine_calc)
+```
+
+```{r}
+table(riskengine_calc$usual, riskengine_calc$cvd5_risk)
+```
+

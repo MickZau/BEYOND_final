@@ -3,7 +3,7 @@ title: "CGM final"
 format: html
 ---
 
-```{r, warning=FALSE, message=FALSE}
+```{r Packages, warning=FALSE, message=FALSE}
 library(here)
 library(tidyverse)
 library(LMMstar)
@@ -14,39 +14,8 @@ library(fs)
 source(here("R/functions.R"))
 ```
 
-```{r}
-# Test, slet senere
-g7_test <- read_csv(here("data-raw/g7_base/35_prepare_2_weeks_arm_1_upload_cgm_data.csv")) |>
-    rename(
-      datetime = "Timestamp (YYYY-MM-DDThh:mm:ss)",
-      type = "Event Type",
-      glucose = "Glucose Value (mmol/L)"
-    ) |>
-    filter(
-      type == "EGV"
-    ) |>
-    mutate(
-      glucose = str_replace_all(glucose, "High", "22.2"),
-      glucose = str_replace_all(glucose, "Low", "2.2"),
-      glucose = as.numeric(glucose)
-    )  |>
-    mutate(
-      date = as_date(datetime),
-      hour = hour(datetime),
-      min = minute(datetime),
-      .before = datetime
-    ) |>
-    select(
-      date,
-      type,
-      hour,
-      min,
-      glucose
-    )
-```
-
-
-```{r, warning=FALSE, message=FALSE, echo=FALSE}
+```{r General import, warning=FALSE, message=FALSE}
+g7_usual <- read.csv2(here("data/usual_treatment.csv"))
 cgm_list_files <- here("data-raw/g7_base") |>
     dir_ls(glob = "*.csv")
 
@@ -58,7 +27,7 @@ g7$id <- str_extract(g7$id, "^\\d+")
 g7$id <- as.factor(g7$id)
 ```
 
-```{r}
+```{r Modified files import, warning=FALSE, message=FALSE}
 # Deltager 1
 g7_1 <- read.csv2(here("data-raw/g7_base/modified/1_prepare_2_weeks_arm_1_upload_cgm_data.csv"),
                   skip = 1) 
@@ -140,21 +109,24 @@ g7_31 <- g7_31 |>
   )
 ```
 
-```{r}
+```{r Merge, warning=FALSE, message=FALSE}
 pre_merge <- g7_1 |> 
   full_join(g7_7) |> 
-  full_join(g7_31) |> 
-  mutate(
-    id = as.factor(id)
-  )
+  full_join(g7_31)
 
 g7 <- pre_merge |> 
   full_join(g7)
+
+g7_73 <- g7 |> 
+  filter(
+    id == "73"
+  ) |> 
+  select(
+    -type
+  )
 ```
 
-```{r}
-summary(g7$id)
-
+```{r Quality check, warning=FALSE, message=FALSE}
 # Overview days
 g7_overview <- as.data.frame(table(g7$id)) |> 
   mutate(
@@ -164,7 +136,8 @@ g7_overview <- as.data.frame(table(g7$id)) |>
   select(
     id,
     Freq
-  )
+  ) |> 
+  arrange(id)
 
 g7_lessthan7 <- g7_overview |> 
   filter(
@@ -175,9 +148,220 @@ g7_check <- g7 |>
   filter(
     id == "26"
   )
+print(g7_overview)
+print(g7_lessthan7)
 ```
 
-```{r}
+```{r Calc glucose values, warning=FALSE, message=FALSE}
+g7_days <- g7 |> 
+  group_by(
+    id
+  ) |> 
+  mutate(
+    days = length(glucose)/288
+  ) |> 
+  summarise(
+    days = round(mean(days),1)
+  ) |> 
+  mutate(id = as.numeric(id)) |> 
+  arrange(
+    id
+  )
+
+g7_glucose <- as.data.frame(LMMstar::summarize(glucose~id, data = g7)) |> 
+  mutate(
+    id = as.numeric(id),
+    cv = sd/mean*100,
+    g7_mean = round(mean, 1),
+    g7_sd = round(sd, 1),
+    g7_cv = round(cv, 1)
+  ) |> 
+  arrange(
+    id
+  ) |> 
+  select(
+    id,
+    g7_mean,
+    g7_sd,
+    g7_cv
+  )
+
+g7_glucose <- cbind(g7_glucose, g7_days$days) |> 
+  rename(g7_days = "g7_days$days")
+```
+
+
+```{r Calc ranges, warning=FALSE, message=FALSE}
+g7_tir <- g7 |> 
+  group_by(
+    id
+  ) |> 
+  mutate(
+    n = length(glucose)
+  ) |> 
+  filter(
+    between(glucose, 3.89, 10.0)
+  ) |> 
+  mutate(
+    n_tir = length(glucose),
+    tir = n_tir/n*100
+  ) |> 
+  select(
+    id,
+    tir
+  ) |> 
+  group_by(
+    id
+  ) |> 
+  summarise(
+    tir = round(mean(tir), 1)
+  ) |> 
+  mutate(
+    id = as.numeric(id)
+  )
+
+g7_tar <- g7 |> 
+  group_by(
+    id
+  ) |> 
+  mutate(
+    n = length(glucose)
+  ) |> 
+  filter(
+    glucose > 10.0
+  ) |> 
+  mutate(
+    n_tar = length(glucose),
+    tar = n_tar/n*100
+  ) |> 
+  select(
+    id,
+    tar
+  ) |> 
+  group_by(
+    id
+  ) |> 
+  summarise(
+    tar = round(mean(tar), 1)
+  ) |> 
+  mutate(
+    id = as.numeric(id)
+  )
+
+g7_tbr <- g7 |> 
+  group_by(
+    id
+  ) |> 
+  mutate(
+    n = length(glucose)
+  ) |> 
+  filter(
+    glucose < 3.9
+  ) |> 
+  mutate(
+    n_tbr = length(glucose),
+    tbr = n_tbr/n*100
+  ) |> 
+  select(
+    id,
+    tbr
+  ) |> 
+  group_by(
+    id
+  ) |> 
+  summarise(
+    tbr = round(mean(tbr), 1)
+  ) |> 
+  mutate(
+    id = as.numeric(id)
+  )
+
+g7_mean_values <- g7_glucose |> 
+  right_join(g7_tir) |> 
+  right_join(g7_tar) |> 
+  right_join(g7_tbr)
+```
+
+
+```{r Plotting glucose values (grouped), warning=FALSE, message=FALSE, dpi=900}
+# 2. Summarize the data: Calculate Mean and SD boundaries
+
+g7_plot <- g7 |> 
+  mutate(
+    hour = as.factor(hour),
+    id = as.integer(id)
+    ) |> 
+  right_join(g7_usual)
+
+g7_plot_mdi <- g7_plot |> 
+  filter(
+    usual == "MDI",
+    !is.na(glucose)
+  ) |> 
+  group_by(hour) |>  
+  summarise(
+    avg = mean(glucose),
+    sd = sd(glucose)
+  ) |> 
+  mutate(
+    upper_sd = avg + sd,
+    lower_sd = avg - sd
+  )
+
+g7_plot_pump <- g7_plot |> 
+  filter(
+    usual == "Pump",
+    !is.na(glucose)
+  ) |> 
+  group_by(hour) |>  
+  summarise(
+    avg = mean(glucose),
+    sd = sd(glucose)
+  ) |> 
+  mutate(
+    upper_sd = avg + sd,
+    lower_sd = avg - sd
+  )
+
+par(mfrow = c(2,1))
+
+# 3. Plotting
+ggplot(g7_plot_mdi, aes(x = hour, y = avg)) +
+  # Plot the Mean Line and Points
+  geom_line(aes(group = 1), color = "blue", linewidth = 1) +
+  geom_point(color = "blue", size = 2) +
+  
+  # Plot the Upper SD Line
+  geom_ribbon(aes(ymin = lower_sd, ymax = upper_sd, group = 1), alpha = 0.3, fill = "blue") +
+  geom_ribbon(aes(ymin = 3.9, ymax = 10.0, group = 1), alpha = 0.1, fill = "darkgreen") +
+  
+  # Optional: Add points for the SD marks as well if desired
+  geom_point(aes(y = upper_sd), color = "red", size = 1) +
+  geom_point(aes(y = lower_sd), color = "red", size = 1) +
+  coord_cartesian(ylim = c(2.2, 22.2)) +
+  geom_abline(slope = 0, intercept = 10) +
+  geom_abline(slope = 0, intercept = 3.9) +
+  labs(title = "CGM mean and sd values, MDI users", y = "Glucose (mmol/L)", x = "Time of day (hour)") + 
+  theme_minimal()
+
+ggplot(g7_plot_pump, aes(x = hour, y = avg)) +
+  # Plot the Mean Line and Points
+  geom_line(aes(group = 1), color = "blue", linewidth = 1) +
+  geom_point(color = "blue", size = 2) +
+  
+  # Plot the Upper SD Line
+  geom_ribbon(aes(ymin = lower_sd, ymax = upper_sd, group = 1), alpha = 0.3, fill = "blue") +
+  geom_ribbon(aes(ymin = 3.9, ymax = 10.0, group = 1), alpha = 0.1, fill = "darkgreen") +
+  
+  # Optional: Add points for the SD marks as well if desired
+  geom_point(aes(y = upper_sd), color = "red", size = 1) +
+  geom_point(aes(y = lower_sd), color = "red", size = 1) +
+  coord_cartesian(ylim = c(2.2, 22.2)) +
+  geom_abline(slope = 0, intercept = 10) +
+  geom_abline(slope = 0, intercept = 3.9) +
+  labs(title = "CGM mean and sd values, Pump users", y = "Glucose (mmol/L)", x = "Time of day (hour)") + 
+  theme_minimal()
+
 
 ```
 

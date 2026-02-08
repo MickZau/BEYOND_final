@@ -13,7 +13,7 @@ library(kableExtra)
 ```
 
 ```{r}
-cantab_qual_check <- read.csv2(here("data/cantab_test_3.csv")) |> 
+cantab_qual_check <- read.csv2(here("data/cantab_test_4.csv")) |> 
   filter(
     Participant == "V085",
     #Observation != "COMPLETE_AND_RELIABLE",
@@ -42,7 +42,7 @@ hst <- read.csv(here("data/hst_values.csv")) |>
     rem_percent,
     n3_percent
   )
-cantab_data <- read.csv2(here("data/cantab_test_3.csv"))|> 
+cantab_data <- read.csv2(here("data/cantab_test_4.csv"))|> 
   rename(
     id = Participant,
     observation = Observation,
@@ -70,7 +70,7 @@ cantab_data <- read.csv2(here("data/cantab_test_3.csv"))|>
 cantab_data$id <- factor(cantab_data$id)
 summary(cantab_data$id)
 
-cantab_data_expanded <- read.csv2(here("data/cantab_test_3.csv"))|> 
+cantab_data_expanded <- read.csv2(here("data/cantab_test_4.csv"))|> 
   rename(
     id = Participant,
     test = Test,
@@ -97,7 +97,7 @@ Svar for enkelt person:
 ```{r}
 cantab_data_single <- cantab_data_expanded |> 
   filter(
-    id == 85
+    id == 68
   ) |>
   select(
     id,
