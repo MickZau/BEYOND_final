@@ -1,0 +1,46 @@
+---
+title: "Merge micro"
+format: html
+---
+
+```{r Packages, warning=FALSE, message=FALSE}
+library(here)
+library(tidyverse)
+library(LMMstar)
+library(readr)
+library(rstatix)
+library(kableExtra)
+library(fs)
+source(here("R/functions.R"))
+```
+
+```{r}
+stenopool_insulin_merge <- stenopool_insulin |> 
+  select(
+    -date,
+    -min
+  ) |> 
+  mutate(
+    hour = as.factor(hour)
+  )
+g7_73_merge <- g7_73 |> 
+  select(
+    -date,
+    -min
+  ) |> 
+  mutate(
+    hour = as.factor(hour)
+  )
+bt_73_merge <- bt_73 |> 
+  select(
+    -date,
+    -min
+  ) |> 
+  mutate(
+    hour = as.factor(hour)
+  )
+
+full <- g7_73_merge |> 
+  full_join(stenopool_insulin_merge) |> 
+  full_join(bt_73_merge)
+```
